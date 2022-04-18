@@ -1,16 +1,15 @@
 import { Stack, StackProps, RemovalPolicy, CfnOutput } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import { Vpc } from 'aws-cdk-lib/aws-ec2';
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { BucketDeployment, Source } from "aws-cdk-lib/aws-s3-deployment";
-import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
-import * as acm from "aws-cdk-lib/aws-certificatemanager";
-import { ApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2"
+import { S3Origin } from "aws-cdk-lib/aws-cloudfront-origins";
+import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
+import { ARecord, RecordTarget, HostedZone } from "aws-cdk-lib/aws-route53"
+import { CloudFrontTarget } from "aws-cdk-lib/aws-route53-targets"
 import {
     OriginAccessIdentity,
     AllowedMethods,
     ViewerProtocolPolicy,
-    OriginProtocolPolicy,
     Distribution,
 } from "aws-cdk-lib/aws-cloudfront";
 
@@ -18,18 +17,13 @@ export class DeployAppToS3AndCloudfrontStack extends Stack {
     constructor(scope: Construct, id: string, props?: StackProps) {
         super(scope, id, props);
 
-        // VPC
-        const vpc = new Vpc(this, "applicationVPC", {
-            maxAzs: 2,
-            natGateways: 1,
+        //Lookup the zone based on domain name
+        const zone = HostedZone.fromLookup(this, 'baseZone', {
+             domainName: "thabolebelo.com"
         });
 
-        // ALB 
-        const alb = new ApplicationLoadBalancer(this, 'ALB', {
-            vpc: vpc,
-            internetFacing: true,
-            loadBalancerName: 'applicationLB'
-        });
+        // SSL certificate 
+        const certificateArn = Certificate.fromCertificateArn(this, "tlsCertificate", "arn:aws:acm:us-east-1:737327749629:certificate/dae9a818-68b8-4a11-89cb-e6dafb234495");
 
         // Web hosting bucket
         const websiteBucket = new Bucket(this, "websiteBucket", {
@@ -49,27 +43,30 @@ export class DeployAppToS3AndCloudfrontStack extends Stack {
         });
 
         // Creating CloudFront distribution
-        let cloudFrontDist = new Distribution(this, "cloudfrontDist", {
+        const cloudFrontDist = new Distribution(this, "cloudfrontDist", {
             defaultRootObject: "index.html",
+            domainNames: ["application.thabolebelo.com"],
+            certificate: certificateArn,
             defaultBehavior: {
-                origin: new origins.S3Origin(websiteBucket as any, {
+                origin: new S3Origin(websiteBucket as any, {
                     originAccessIdentity: originAccessIdentity as any,
                 }) as any,
                 compress: true,
                 allowedMethods: AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
-                viewerProtocolPolicy: ViewerProtocolPolicy.ALLOW_ALL,
+                viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
             },
         });
 
-        // Creating custom origin for the application load balancer
-        new origins.HttpOrigin(alb.loadBalancerDnsName, {
-            protocolPolicy: OriginProtocolPolicy.HTTP_ONLY,
-        });
+        const applicationURL = new ARecord(this, "appURL", {
+            zone: zone,
+            recordName: "application.thabolebelo.com",
+            target: RecordTarget.fromAlias(new CloudFrontTarget(cloudFrontDist))
+        })
 
-        // Output the CouldFront domain to test connection
-        new CfnOutput(this, "cloudfrontDomainUrl", {
-            value: cloudFrontDist.distributionDomainName,
-            exportName: "cloudfrontDomainUrl",
+        // Output the application URL to test connection
+        new CfnOutput(this, "applicationURL", {
+            value: applicationURL.domainName,
+            exportName: "applicationURL",
         });
     }
 }
