@@ -23,7 +23,7 @@ export class DeployAppToS3AndCloudfrontStack extends Stack {
         });
 
         // SSL certificate 
-        const certificateArn = Certificate.fromCertificateArn(this, "tlsCertificate", "arn:aws:acm:us-east-1:737327749629:certificate/dae9a818-68b8-4a11-89cb-e6dafb234495");
+        const certificateArn = Certificate.fromCertificateArn(this, "tlsCertificate", "your_certificate_arn");
 
         // Web hosting bucket
         const websiteBucket = new Bucket(this, "websiteBucket", {
